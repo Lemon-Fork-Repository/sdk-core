@@ -1,5 +1,5 @@
 use crate::{
-    panic_formatter, CancellableID, RustWfCmd, SignalData, TimerResult, UnblockEvent,
+    panic_formatter, CancellableID, Codec, RustWfCmd, SignalData, TimerResult, UnblockEvent,
     UpdateContext, UpdateFunctions, UpdateInfo, WfContext, WfExitValue, WorkflowFunction,
     WorkflowResult,
 };
@@ -51,12 +51,14 @@ impl WorkflowFunction {
         workflow_type: &str,
         args: Vec<Payload>,
         outgoing_completions: UnboundedSender<WorkflowActivationCompletion>,
+        codec: Option<Codec>,
     ) -> (
         impl Future<Output = WorkflowResult<Payload>>,
         UnboundedSender<WorkflowActivation>,
     ) {
         let (cancel_tx, cancel_rx) = watch::channel(false);
-        let (wf_context, cmd_receiver) = WfContext::new(namespace, task_queue, args, cancel_rx);
+        let (wf_context, cmd_receiver) =
+            WfContext::new(namespace, task_queue, args, cancel_rx, codec);
         let (tx, incoming_activations) = unbounded_channel();
         let span = info_span!(
             "RunWorkflow",

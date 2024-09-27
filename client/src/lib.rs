@@ -661,7 +661,26 @@ pub struct Client {
     inner: ConfiguredClient<TemporalServiceClientWithMetrics>,
     /// The namespace this client interacts with
     namespace: String,
+    /// todo
+    codec: Option<Codec>,
 }
+
+/// todo
+#[derive(Clone)]
+pub struct Codec {
+    /// todo
+    pub encode: Arc<Box<dyn Fn(&Payload) -> Payload>>,
+    /// todo
+    pub decode: Arc<Box<dyn Fn(&Payload) -> Payload>>,
+}
+impl Debug for Codec {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Codec").finish()
+    }
+}
+
+unsafe impl Sync for Codec {}
+unsafe impl Send for Codec {}
 
 impl Client {
     /// Create a new client from an existing configured lower level client and a namespace
@@ -672,7 +691,13 @@ impl Client {
         Client {
             inner: client,
             namespace,
+            codec: None,
         }
+    }
+
+    /// todo
+    pub fn set_codec(&mut self, codec: Codec) {
+        self.codec = Some(codec);
     }
 
     /// Return an auto-retrying version of the underling grpc client (instrumented with metrics
@@ -867,6 +892,9 @@ impl SignalWithStartOptions {
 #[cfg_attr(test, mockall::automock)]
 #[async_trait::async_trait]
 pub trait WorkflowClientTrait {
+    /// todo
+    fn get_codec(&self) -> Option<Codec>;
+
     /// Starts workflow execution.
     async fn start_workflow(
         &self,
@@ -1086,6 +1114,10 @@ pub struct WorkflowOptions {
 
 #[async_trait::async_trait]
 impl WorkflowClientTrait for Client {
+    fn get_codec(&self) -> Option<Codec> {
+        self.codec.clone()
+    }
+
     async fn start_workflow(
         &self,
         input: Vec<Payload>,
@@ -1095,6 +1127,11 @@ impl WorkflowClientTrait for Client {
         request_id: Option<String>,
         options: WorkflowOptions,
     ) -> Result<StartWorkflowExecutionResponse> {
+        let input = if let Some(codec) = self.codec.clone() {
+            input.iter().map(|f| (codec.encode)(f)).collect::<Vec<_>>()
+        } else {
+            input
+        };
         Ok(WorkflowService::start_workflow_execution(
             &mut self.inner.clone(),
             StartWorkflowExecutionRequest {

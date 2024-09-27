@@ -1389,6 +1389,8 @@ pub mod coresdk {
     //   other SDKs (given they might execute an activity).
     pub trait AsJsonPayloadExt {
         fn as_json_payload(&self) -> anyhow::Result<Payload>;
+
+        fn as_bytes(&self) -> anyhow::Result<Vec<u8>>;
     }
     impl<T> AsJsonPayloadExt for T
     where
@@ -1405,6 +1407,11 @@ pub mod coresdk {
                 metadata,
                 data: as_json.into_bytes(),
             })
+        }
+
+        fn as_bytes(&self) -> anyhow::Result<Vec<u8>> {
+            let as_json = serde_json::to_string(self)?;
+            Ok(as_json.into_bytes())
         }
     }
 

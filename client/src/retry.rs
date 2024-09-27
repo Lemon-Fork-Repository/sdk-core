@@ -1,5 +1,5 @@
 use crate::{
-    raw::IsUserLongPoll, ClientOptions, ListClosedFilters, ListOpenFilters, Namespace,
+    raw::IsUserLongPoll, ClientOptions, Codec, ListClosedFilters, ListOpenFilters, Namespace,
     RegisterNamespaceOptions, Result, RetryConfig, SignalWithStartOptions, StartTimeFilter,
     WorkflowClientTrait, WorkflowOptions,
 };
@@ -292,6 +292,10 @@ impl<SG> WorkflowClientTrait for RetryClient<SG>
 where
     SG: WorkflowClientTrait + Send + Sync + 'static,
 {
+    fn get_codec(&self) -> Option<Codec> {
+        self.client.get_codec()
+    }
+
     async fn start_workflow(
         &self,
         input: Vec<Payload>,

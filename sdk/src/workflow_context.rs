@@ -6,7 +6,7 @@ pub use options::{
 };
 
 use crate::{
-    workflow_context::options::IntoWorkflowCommand, CancelExternalWfResult, CancellableID,
+    workflow_context::options::IntoWorkflowCommand, CancelExternalWfResult, CancellableID, Codec,
     CommandCreateRequest, CommandSubscribeChildWorkflowCompletion, IntoUpdateHandlerFunc,
     IntoUpdateValidatorFunc, RustWfCmd, SignalExternalWfResult, TimerResult, UnblockEvent,
     Unblockable, UpdateFunctions,
@@ -14,6 +14,7 @@ use crate::{
 use crossbeam_channel::{Receiver, Sender};
 use futures::{task::Context, FutureExt, Stream, StreamExt};
 use parking_lot::{RwLock, RwLockReadGuard};
+use std::borrow::Cow;
 use std::{
     collections::HashMap,
     future::Future,
@@ -58,6 +59,8 @@ pub struct WfContext {
     pub(crate) shared: Arc<RwLock<WfContextSharedData>>,
 
     seq_nums: Arc<RwLock<WfCtxProtectedDat>>,
+
+    codec: Option<Codec>,
 }
 
 // TODO: Dataconverter type interface to replace Payloads here. Possibly just use serde
@@ -70,6 +73,7 @@ impl WfContext {
         task_queue: String,
         args: Vec<Payload>,
         am_cancelled: watch::Receiver<bool>,
+        codec: Option<Codec>,
     ) -> (Self, Receiver<RustWfCmd>) {
         // We need to use a normal std channel since our receiving side is non-async
         let (chan, rx) = crossbeam_channel::unbounded();
@@ -88,9 +92,22 @@ impl WfContext {
                     next_cancel_external_wf_sequence_number: 1,
                     next_signal_external_wf_sequence_number: 1,
                 })),
+                codec,
             },
             rx,
         )
+    }
+    /// todo
+    pub fn codec(&self) -> Option<Codec> {
+        self.codec.to_owned()
+    }
+
+    /// todo
+    pub fn decode_payload<'a>(&'a self, payload: &'a Payload) -> anyhow::Result<Cow<Payload>> {
+        match self.codec() {
+            Some(codec) => Ok(Cow::Owned((codec.decode)(payload))),
+            None => Ok(Cow::Borrowed(payload)),
+        }
     }
 
     /// Return the namespace the workflow is executing in

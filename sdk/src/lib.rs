@@ -133,7 +133,20 @@ pub struct Worker {
     workflow_half: WorkflowHalf,
     activity_half: ActivityHalf,
     app_data: Option<AppData>,
+    codec: Option<Codec>,
 }
+
+/// todo
+#[derive(Clone)]
+pub struct Codec {
+    /// todo
+    pub encode: Arc<Box<dyn Fn(&Payload) -> Payload>>,
+    /// todo
+    pub decode: Arc<Box<dyn Fn(&Payload) -> Payload>>,
+}
+
+unsafe impl Sync for Codec {}
+unsafe impl Send for Codec {}
 
 struct CommonWorker {
     worker: Arc<dyn CoreWorker>,
@@ -181,7 +194,13 @@ impl Worker {
                 task_tokens_to_cancels: Default::default(),
             },
             app_data: Some(Default::default()),
+            codec: None,
         }
+    }
+
+    /// todo
+    pub fn set_codec(&mut self, codec: Codec) {
+        self.codec = Some(codec);
     }
 
     /// Returns the task queue name this worker polls on
@@ -233,6 +252,7 @@ impl Worker {
     /// or may return early with an error in the event of some unresolvable problem.
     pub async fn run(&mut self) -> Result<(), anyhow::Error> {
         let shutdown_token = CancellationToken::new();
+        let codec = self.codec.clone();
         let (common, wf_half, act_half, app_data) = self.split_apart();
         let safe_app_data = Arc::new(
             app_data
@@ -293,6 +313,7 @@ impl Worker {
                         shutdown_token.clone(),
                         activation,
                         &completions_tx,
+                        codec.clone(),
                     )? {
                         if wf_future_tx.send(wf_fut).is_err() {
                             panic!(
@@ -387,6 +408,7 @@ impl WorkflowHalf {
         shutdown_token: CancellationToken,
         activation: WorkflowActivation,
         completions_tx: &UnboundedSender<WorkflowActivationCompletion>,
+        codec: Option<Codec>,
     ) -> Result<
         Option<
             WorkflowFutureHandle<impl Future<Output = Result<WorkflowResult<Payload>, JoinError>>>,
@@ -424,6 +446,7 @@ impl WorkflowHalf {
                 // NOTE: Don't clone args if this gets ported to be a non-test rust worker
                 sw.arguments.clone(),
                 completions_tx.clone(),
+                codec,
             );
             let jh = tokio::spawn(async move {
                 tokio::select! {
@@ -789,6 +812,7 @@ impl WorkflowFunction {
     {
         Self {
             wf_func: Box::new(move |ctx: WfContext| {
+                let codec = ctx.codec();
                 (f)(ctx)
                     .map(|r| {
                         r.and_then(|r| {
@@ -796,7 +820,13 @@ impl WorkflowFunction {
                                 WfExitValue::ContinueAsNew(b) => WfExitValue::ContinueAsNew(b),
                                 WfExitValue::Cancelled => WfExitValue::Cancelled,
                                 WfExitValue::Evicted => WfExitValue::Evicted,
-                                WfExitValue::Normal(o) => WfExitValue::Normal(o.as_json_payload()?),
+                                WfExitValue::Normal(o) => WfExitValue::Normal({
+                                    if let Some(codec) = codec {
+                                        (codec.encode)(&o.as_json_payload()?)
+                                    } else {
+                                        o.as_json_payload()?
+                                    }
+                                }),
                             })
                         })
                     })
